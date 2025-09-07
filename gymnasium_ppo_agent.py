@@ -15,6 +15,13 @@ import argparse
 from typing import Optional
 import cv2
 
+# Import gymnasium-robotics to register MuJoCo and other robotics environments
+try:
+    import gymnasium_robotics
+    print("Successfully imported gymnasium-robotics environments")
+except ImportError:
+    print("Warning: gymnasium-robotics not installed. MuJoCo environments unavailable.")
+
 
 class EarlyStoppingCallback(BaseCallback):
     """Early stopping callback based on improvement threshold and patience"""
@@ -52,7 +59,26 @@ class EarlyStoppingCallback(BaseCallback):
 def make_gym_env(env_id, rank=0, seed=0):
     """Create a Gymnasium environment suitable for training"""
     def _init():
-        env = gym.make(env_id, render_mode="rgb_array")
+        # Try to create the environment, checking for version compatibility
+        try:
+            env = gym.make(env_id, render_mode="rgb_array")
+        except gym.error.DeprecatedEnv:
+            # Try to use the latest version if the requested version is deprecated
+            print(f"Warning: {env_id} is deprecated. Trying latest version...")
+            # Extract base env name and try with v5 (latest for most MuJoCo envs)
+            base_name = env_id.rsplit('-', 1)[0]
+            try:
+                env = gym.make(f"{base_name}-v5", render_mode="rgb_array")
+                print(f"Using {base_name}-v5 instead")
+            except:
+                # Fall back to v4 if v5 doesn't exist
+                try:
+                    env = gym.make(f"{base_name}-v4", render_mode="rgb_array")
+                    print(f"Using {base_name}-v4 instead")
+                except:
+                    # If all else fails, use the original
+                    env = gym.make(env_id, render_mode="rgb_array")
+        
         env = Monitor(env)
         env.reset(seed=seed + rank)
         return env
@@ -65,15 +91,27 @@ def train_ppo(env_id="CartPole-v1", total_timesteps=100000, n_envs=4,
     print(f"Training PPO on {env_id} with early stopping")
     print(f"Early stopping patience: {early_stopping_patience}, Min improvement: {min_improvement}")
     
-    # Create vectorized environment
+    # Create vectorized environment using our custom env creator
     env = make_vec_env(
-        lambda: gym.make(env_id, render_mode="rgb_array"),
+        make_gym_env(env_id, rank=0, seed=42),
         n_envs=n_envs,
         seed=42
     )
     
-    # Create eval environment
-    eval_env = gym.make(env_id, render_mode="rgb_array")
+    # Create eval environment with version handling
+    try:
+        eval_env = gym.make(env_id, render_mode="rgb_array")
+    except gym.error.DeprecatedEnv:
+        base_name = env_id.rsplit('-', 1)[0]
+        try:
+            eval_env = gym.make(f"{base_name}-v5", render_mode="rgb_array")
+            print(f"Using {base_name}-v5 for evaluation")
+        except:
+            try:
+                eval_env = gym.make(f"{base_name}-v4", render_mode="rgb_array")
+                print(f"Using {base_name}-v4 for evaluation")
+            except:
+                eval_env = gym.make(env_id, render_mode="rgb_array")
     
     # Define model with appropriate policy based on observation space
     obs_space = env.observation_space
@@ -185,7 +223,19 @@ def test_agent(model_path, env_id, episodes=5, render=True):
     
     # Always use rgb_array to avoid GUI dependencies
     # The render parameter now only controls whether we display stats
-    env = gym.make(env_id, render_mode="rgb_array")
+    try:
+        env = gym.make(env_id, render_mode="rgb_array")
+    except gym.error.DeprecatedEnv:
+        base_name = env_id.rsplit('-', 1)[0]
+        try:
+            env = gym.make(f"{base_name}-v5", render_mode="rgb_array")
+            print(f"Using {base_name}-v5 for testing")
+        except:
+            try:
+                env = gym.make(f"{base_name}-v4", render_mode="rgb_array")
+                print(f"Using {base_name}-v4 for testing")
+            except:
+                env = gym.make(env_id, render_mode="rgb_array")
     
     model = PPO.load(model_path)
     
@@ -237,7 +287,20 @@ def record_video_with_actions(
     model = PPO.load(model_path)
     
     # Get action meanings if available
-    env = gym.make(env_id, render_mode="rgb_array")
+    try:
+        env = gym.make(env_id, render_mode="rgb_array")
+    except gym.error.DeprecatedEnv:
+        base_name = env_id.rsplit('-', 1)[0]
+        try:
+            env = gym.make(f"{base_name}-v5", render_mode="rgb_array")
+            print(f"Using {base_name}-v5 for recording")
+        except:
+            try:
+                env = gym.make(f"{base_name}-v4", render_mode="rgb_array")
+                print(f"Using {base_name}-v4 for recording")
+            except:
+                env = gym.make(env_id, render_mode="rgb_array")
+    
     action_meanings = None
     if hasattr(env, 'get_action_meanings'):
         action_meanings = env.get_action_meanings()
