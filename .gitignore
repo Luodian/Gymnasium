@@ -45,3 +45,6 @@ vizdoom.ini
 
 # Data generated from pytest
 save_videos*/
+models/
+tensorboard_logs/
+videos/
